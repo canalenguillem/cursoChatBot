@@ -102,3 +102,4 @@ Thumbs.db
 *.log
 docker-compose.override.yml
 *.mp3
+user_contexts.json

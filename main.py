@@ -1,30 +1,83 @@
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse,StreamingResponse
 
 from pydantic import BaseModel
-from chatgpt import get_chatgpt_response
+from chatgpt import get_chatgpt_response,transcribe_audio
 from elevenlabs import convert_text_to_speech
 import os
+from context import get_user_context, update_user_context, reset_user_context
+import shutil
+
 app = FastAPI()
 
 class Message(BaseModel):
     text: str
 
+@app.post("/chat2/")
+async def chat2(file: UploadFile = File(...)):
+    if file.content_type not in ["audio/wav", "audio/mpeg"]:
+        raise HTTPException(status_code=400, detail="Invalid file type. Please upload a WAV or MP3 file.")
+
+    temp_file_path = file.filename
+    print(f" temp_file_path {temp_file_path}")
+    with open(temp_file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    #Convert the audio file to MP3
+    mp3_file_path = f"{os.path.splitext(temp_file_path)[0]}.mp3"
+
+    try:
+        print(f"mp3 file {mp3_file_path}")
+        message_decoded=transcribe_audio(mp3_file_path)
+        print(f"message decoded: {message_decoded}")
+    except Exception as e:
+        print(f"erro: {e}")
+
 @app.post("/chat/")
-def chat(message: Message):
-    user_input = message.text
-    response_text = get_chatgpt_response(user_input)
-    if response_text.startswith("Error:"):
-        raise HTTPException(status_code=500, detail=response_text)
+async def chat(user_id: str, file: UploadFile = File(...)):
+    try:
+        
+        # Save the file temporarily
+        temp_file_path = file.filename
+        with open(temp_file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        # Convert the audio file to MP3
+        mp3_file_path = f"{os.path.splitext(temp_file_path)[0]}.mp3"
+        transcription = transcribe_audio(mp3_file_path)
+        if transcription.startswith("Error:"):
+            raise HTTPException(status_code=500, detail=transcription)
+        
+        # Obtener el contexto del usuario
+        context = get_user_context(user_id)
+        context.append(transcription)
 
-    # Convert chat response to audio
-    audio_output = convert_text_to_speech(response_text)
-    if not audio_output:
-        raise HTTPException(status_code=400, detail="Failed audio output")
+        # Generar el prompt combinando el contexto
+        prompt = "\n".join(context)
 
-    # Create a generator that yields chunks of data
-    def iterfile():
-        yield audio_output
+        # Obtener respuesta de ChatGPT
+        response_text = get_chatgpt_response(prompt)
+        if response_text.startswith("Error:"):
+            raise HTTPException(status_code=500, detail=response_text)
+        
+        # Actualizar el contexto del usuario
+        update_user_context(user_id, transcription)
+        update_user_context(user_id, response_text)
+        
 
-    return StreamingResponse(iterfile(), media_type="audio/mpeg")
+        # Convert chat response to audio
+        audio_output = convert_text_to_speech(response_text)
+        if not audio_output:
+            raise HTTPException(status_code=400, detail="Failed audio output")
+
+        # Create a generator that yields chunks of data
+        def iterfile():
+            yield audio_output
+
+        return StreamingResponse(iterfile(), media_type="audio/mpeg")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/reset_context/")
+def reset_context(user_id: str):
+    reset_user_context(user_id)
+    return {"message": "Contexto reiniciado correctamente"}
     
