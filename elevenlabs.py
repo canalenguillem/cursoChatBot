@@ -74,5 +74,8 @@ def text_to_speech(text: str, output_file: str = "output.mp3") -> str:
         return f"Error: {str(e)}"
 
 if __name__ == "__main__":
-    result = text_to_speech("my name is will")
-    print(f"result: {result}")
+    response = convert_text_to_speech("my name is will")
+    # Guardar la respuesta de audio en un archivo
+    print(response)
+    with open("outputrwa.mp3", 'wb') as f:
+        f.write(response)

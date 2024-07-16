@@ -7,14 +7,11 @@ api_key = config('OPENAI_API_KEY')
 # Crear el cliente de OpenAI
 client = OpenAI(api_key=api_key)
 
-def get_chatgpt_response(user_input: str) -> str:
+def get_chatgpt_response(messages: list) -> str:
     try:
         response = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "Eres un asistente de programación, haz respuestas breves de 40 palabras y en ingles"},
-                {"role": "user", "content": user_input}
-            ],
             model="gpt-3.5-turbo",
+            messages=messages
         )
         chatbot_response = response.choices[0].message.content.strip()
         return chatbot_response

@@ -3,7 +3,7 @@ from fastapi.responses import FileResponse,StreamingResponse
 
 from pydantic import BaseModel
 from chatgpt import get_chatgpt_response,transcribe_audio
-from elevenlabs import convert_text_to_speech
+from elevenlabs import text_to_speech
 import os
 from context import get_user_context, update_user_context, reset_user_context
 import shutil
@@ -43,28 +43,27 @@ async def chat(user_id: str, file: UploadFile = File(...)):
         # Convert the audio file to MP3
         mp3_file_path = f"{os.path.splitext(temp_file_path)[0]}.mp3"
         transcription = transcribe_audio(mp3_file_path)
-        if transcription.startswith("Error:"):
+        if not transcription:
             raise HTTPException(status_code=500, detail=transcription)
         
         # Obtener el contexto del usuario
         context = get_user_context(user_id)
-        context.append(transcription)
-
-        # Generar el prompt combinando el contexto
-        prompt = "\n".join(context)
+        context.append({"role": "user", "content": transcription})
+        update_user_context(user_id, {"role": "user", "content": transcription})
 
         # Obtener respuesta de ChatGPT
-        response_text = get_chatgpt_response(prompt)
-        if response_text.startswith("Error:"):
-            raise HTTPException(status_code=500, detail=response_text)
-        
-        # Actualizar el contexto del usuario
-        update_user_context(user_id, transcription)
-        update_user_context(user_id, response_text)
-        
+        response_text = get_chatgpt_response(context)
+        if not response_text:
+            raise HTTPException(status_code=400, detail="Failed chat response")
 
+        # Actualizar el contexto con la respuesta del chatbot
+        update_user_context(user_id, {"role": "assistant", "content": response_text})
+
+              
+
+        print(f"response for eleven {response_text}")
         # Convert chat response to audio
-        audio_output = convert_text_to_speech(response_text)
+        audio_output = text_to_speech(response_text)
         if not audio_output:
             raise HTTPException(status_code=400, detail="Failed audio output")
 
